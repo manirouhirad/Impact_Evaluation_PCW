@@ -48,13 +48,10 @@ library(RColorBrewer)
 library(readstata13)
 library(parallel)
 library(here)
-setwd("C:/Users/mr2284/Dropbox") # windows
-getwd()
-here("Panama S2", "Impact Evaluation")
-list.files()
 
-setwd("/Users/Mani/Dropbox/Panama S2/Impact Evaluation") # mac
-setwd("C:/Users/mr2284/Dropbox/Panama S2/Impact Evaluation") # windows
+
+# setwd("/Users/Mani/Dropbox/Panama S2/Impact Evaluation") # mac
+# setwd("C:/Users/mr2284/Dropbox/Panama S2/Impact Evaluation") # windows
 
 simpleCap <- function(x) {                                          # 1) Function defined to make all caps to propper
   paste(substring(x, 1,1), tolower(substring(x, 2)),                # 2)
@@ -77,45 +74,22 @@ FN_area_sp = function(input_sp, scenario){                          # 1) functio
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                   I. River discharge
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-river_discharge=data.table(read.csv("./Data/Map Area_update.csv"))
+# river_discharge=data.table(read.csv("./Data/Map Area_update.csv"))
+river_discharge=data.table(read.csv("./Data/Map Area2.csv"))
 river_discharge=melt(river_discharge, id=c("River", "Year", "Day"), variable.name = "month", value.name = "discharge_m3_s")
 river_discharge=river_discharge[complete.cases(Day)]
-river_discharge[, date_read := as.Date(as.character(paste(Year, month, Day, sep = "")), "%Y%b%d")]
-river_discharge=river_discharge[,.(River, year=Year, month, day=Day, date_read, discharge_m3_s)]
+river_discharge[ , month:=as.character(month)]
+river_discharge[ , month:=match(month,month.abb)]
+
+# river_discharge[, foo_date:=as.character(paste(Year, month, Day, sep = "/"))]
+# river_discharge[, date_read := as.Date(foo_date, "%Y/%b/%d")]
+river_discharge=river_discharge[,.(River, year=Year, month, day=Day, discharge_m3_s)]
 river_discharge[, discharge_m3_s:=as.numeric(discharge_m3_s)]
 
-# windows
-weird_Pequeni =river_discharge[, unique(River)][2]
-weird_Gatun   =river_discharge[, unique(River)][3]
-weird_Boqueron=river_discharge[, unique(River)][4]
-weird_Ciri    =river_discharge[, unique(River)][6]
-weird_Cano    =river_discharge[, unique(River)][7]
-
-river_discharge[, River:=gsub(weird_Gatun, "Gatun", River)]
-river_discharge[, River:=gsub(weird_Cano, "Cano Quebrado", River)]
-river_discharge[, River:=gsub(weird_Boqueron, "Boqueron", River)]
-river_discharge[, River:=gsub(weird_Ciri, "Ciri grande", River)]
-river_discharge[, River:=gsub("Indio BdU", "Indio", River)]
-river_discharge[, River:=gsub(weird_Pequeni, "Pequeni", River)]
+river_discharge[, River:=gsub("Cano", "Cano Quebrado", River)]
+river_discharge[, River:=gsub("Ciri", "Ciri grande", River)]
 river_discharge[, unique(River)]
 
-# mac
-# river_discharge[, River:=gsub("Gat\xfan",          "Gatun", River)]
-# river_discharge[, River:=gsub("Ca\xf1o Quebrado",  "Cano Quebrado", River)]
-# river_discharge[, River:=gsub("Boquer\xf3n",       "Boqueron", River)]
-# river_discharge[, River:=gsub("Cir\xed Grande",    "Ciri grande", River)]
-# river_discharge[, River:=gsub("Indio BdU",         "Indio", River)]
-# river_discharge[, River:=gsub("Pequen\xed",        "Pequeni", River)]
-# river_discharge[, unique(River)]
-
-
-river_discharge[ , month:=month(date_read)]
-# Since I am a visual person:
-ggplot(data = river_discharge[(River=="Cano Quebrado" | River=="Trinidad")], aes(x=date_read, y=discharge_m3_s, group=River, colour=River))+
-  geom_line(size=1.1)+
-  coord_cartesian(ylim=c(0, 400)) +
-  scale_x_date(labels = date_format("%m-%Y")) + 
-  scale_y_discrete(breaks=seq(0, 400, 100))  # Ticks from 0-10, every .25
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                   II. River - watershed connection
@@ -134,7 +108,7 @@ setkey(river_discharge, River)
 
 river_discharge=river_names[river_discharge]
 river_discharge=river_discharge[complete.cases(NOMBRE)]
-river_discharge=river_discharge[,.(River, SUBCUENC_2, year, month, day, date_read, discharge_m3_s)]
+river_discharge=river_discharge[,.(River, SUBCUENC_2, year, month, day, discharge_m3_s)]
 
 weird_char = unique(river_discharge$SUBCUENC_2)[1]
 weird_char = substr(weird_char, 1, 4) # win
@@ -146,15 +120,18 @@ river_discharge[, SUBCUENC_2 := gsub("CaÃ±o", "Cano", SUBCUENC_2)]
 
 weird_char_ciri=unique(river_discharge$SUBCUENC_2)[4]
 weird_char_ciri=substr(weird_char_ciri, 5, 8)
-weird_char_pequeni=unique(river_discharge$SUBCUENC_2)[7]
+weird_char_pequeni=unique(river_discharge$SUBCUENC_2)[6]
 weird_char_pequeni=substr(weird_char_pequeni, 5, 13)
 river_discharge[, SUBCUENC_2 := gsub(weird_char_ciri,    "Ciri",    SUBCUENC_2)] # win
 river_discharge[, SUBCUENC_2 := gsub(weird_char_pequeni, "Pequeni", SUBCUENC_2)] # win
 river_discharge[, SUBCUENC_2 := gsub("GatÃºn", "Gatun", SUBCUENC_2)]
 river_discharge[, unique(SUBCUENC_2)]
 
-river_discharge[,.N, by="River"]
-# Excpet Indio, the panel is almost balanced. Only Chagres has more data which may mean there is "extra" data
+river_discharge[year==2016 & River=="Gatun",.N, by="month"]
+river_discharge[year==2016 & River=="Chagres",.N, by="month"]
+river_discharge[,.N, by=River]
+
+# Except Indio, which will be thrown out, the panel is almost balanced. Only Chagres has more data which may mean there is "extra" data
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                   II. Hectares in each region-year
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -186,14 +163,52 @@ watershed_PIEA_final[, unique(SUBCUENC_2)]
 #                   III. Rainfall (Other climatic variables?)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-rainfall_PIEA=read.dta13("./Data/Rainfall/acp_15Minstorms_Steve_v18112016.dta")
-rainfall_PIEA=data.table(rainfall_PIEA)
-rainfall_PIEA[,month:=substr(date, 4, 5)]
-rainfall_PIEA[,day  :=substr(date, 1, 2)]
-rainfall_PIEA[,total_rain_day:=sum(Totalrain), by=c("site", "Year", "month", "day")]
-rainfall_PIEA=unique(rainfall_PIEA, by=c("site", "Year", "month", "day"))
-rainfall_PIEA[,month:=as.numeric(month)]
-rainfall_PIEA[,day  :=as.numeric(day)]
+################
+# rainfall_PIEA=read.dta13("./Data/Rainfall/acp_15Minstorms_Steve_v18112016.dta")
+# rainfall_PIEA=data.table(rainfall_PIEA)
+# rainfall_PIEA[,month:=substr(date, 4, 5)]
+# rainfall_PIEA[,day  :=substr(date, 1, 2)]
+# rainfall_PIEA[,total_rain_day:=sum(Totalrain), by=c("site", "Year", "month", "day")]
+# rainfall_PIEA=unique(rainfall_PIEA, by=c("site", "Year", "month", "day"))
+# rainfall_PIEA[,month:=as.numeric(month)]
+# rainfall_PIEA[,Year :=as.numeric(Year)]
+# rainfall_PIEA[,day  :=as.numeric(day)]
+
+################
+rainfall_PIEA2=read.csv("./Data/Rainfall/ACP_Rainfall_hourly.csv")
+rainfall_PIEA2=data.table(rainfall_PIEA2)
+rainfall_PIEA2[,DATETIME.dd.mm.yyyy.hh.mm.:=as.character(DATETIME.dd.mm.yyyy.hh.mm.)]
+rainfall_PIEA2[, day:=substr(DATETIME.dd.mm.yyyy.hh.mm., 1, regexpr('/', DATETIME.dd.mm.yyyy.hh.mm.)-1)]
+rainfall_PIEA2[,first_foo:=substr(DATETIME.dd.mm.yyyy.hh.mm., regexpr('/', DATETIME.dd.mm.yyyy.hh.mm.)+1, 20)]
+rainfall_PIEA2[, month:=substr(first_foo, 1, regexpr('/', first_foo)-1)]
+rainfall_PIEA2[,first_foo:=substr(first_foo, regexpr('/', first_foo)+1, 20)]
+rainfall_PIEA2[, year:=substr(first_foo, 1, regexpr(' ', first_foo)-1)]
+
+rainfall_PIEA2[, day:=  as.numeric(as.character(day))]
+rainfall_PIEA2[, month:=as.numeric(as.character(month))]
+rainfall_PIEA2[, year:= as.numeric(as.character(year))]
+rainfall_PIEA2=rainfall_PIEA2[, .(Station, year, month, day, total_rain_day=Rain..mm.)]
+rainfall_PIEA2[, total_rain_day:=sum(total_rain_day), by=c("Station", "year", "month", "day")]
+rainfall_PIEA2=unique(rainfall_PIEA2, by=c("Station", "year", "month", "day"))
+
+####### check these two for rainfall before 2004
+rainfall_PIEA2[,unique(Station)]
+rainfall_PIEA[, unique(site)]
+
+rainfall_PIEA2[Station== "CHORRO", .N, by="year"]
+rainfall_PIEA[ site == "CHORRO"  , .N, by="Year"]
+
+
+# for (i in 1:nrow(rivers_used)) {
+#   temp=rainfall_PIEA2[Station== rivers_used[i], .N, by="year"]
+#   print(rivers_used[i])
+#   print(temp)
+#   readline(prompt="Press [enter] to continue")
+# }
+######## only SANMIGUEL and CHAGRECITO don't have enough data. Unfortunately, ZANGUENA only has data starting 2004. This is in Cano Quebrado catchment so would have been helpful.
+setnames(rainfall_PIEA2, "Station", "site")
+###############
+
 
 rainfall_stations = readOGR(dsn="./Data/Rainfall/stations", layer="stations")
 # foo1 = watershed_original[!is.na(over(rainfall_stations, as(watershed_original,"SpatialPolygons"))),]
@@ -213,35 +228,39 @@ setkey(bar, CODENAME)
 rainfall_stations=bar[,.(OBJECTID, over_id, CODENAME, SUBCUENC_2)]
 rainfall_stations[, CODENAME:=gsub(" ", "", CODENAME, fixed = TRUE)]
 setkey(rainfall_stations, CODENAME)
-setkey(rainfall_PIEA, site)
-rainfall_PIEA=rainfall_stations[rainfall_PIEA]
-rainfall_PIEA=rainfall_PIEA[complete.cases(CODENAME) & complete.cases(SUBCUENC_2)]
-rainfall_PIEA=rainfall_PIEA[,.(Station= CODENAME, SUBCUENC_2, date, Year, month, day, total_rain_day)]
-rainfall_PIEA[, date_read:=as.Date(date, "dd/mm/yyyy")]
-rainfall_PIEA[, date_read:=as.Date(date, "%d/%m/%Y")]
+setkey(rainfall_PIEA2, site)
+rainfall_PIEA2=rainfall_stations[rainfall_PIEA2]
+rainfall_PIEA2=rainfall_PIEA2[complete.cases(CODENAME) & complete.cases(SUBCUENC_2)]
+rainfall_PIEA2=rainfall_PIEA2[,.(Station= CODENAME, SUBCUENC_2, date=as.Date(paste(year, month, day, sep = "-")), year, month, day, total_rain_day)]
+# rainfall_PIEA2[, date_read:=as.Date(date, "dd/mm/yyyy")]
+# rainfall_PIEA2[, date_read:=as.Date(date, "%d/%m/%Y")]
 
+# 
+# ggplot(data = rainfall_PIEA2[Station=="CANONES"], aes(x=date_read, y=total_rain_day))+
+#   geom_line(size=1.1)+
+#   # coord_cartesian(ylim=c(0, 400)) +
+#   scale_x_date(labels = date_format("%m-%Y")) #+ 
+# # scale_y_discrete(breaks=seq(0, 400, 100))  # Ticks from 0-10, every .25
+# rainfall_PIEA2[, unique(Station)]
 
-ggplot(data = rainfall_PIEA[Station=="CANONES"], aes(x=date_read, y=total_rain_day))+
-  geom_line(size=1.1)+
-  # coord_cartesian(ylim=c(0, 400)) +
-  scale_x_date(labels = date_format("%m-%Y")) #+ 
-# scale_y_discrete(breaks=seq(0, 400, 100))  # Ticks from 0-10, every .25
-rainfall_PIEA[, unique(Station)]
-
-# rainfall_PIEA[,        unique(SUBCUENC_2)]
+rainfall_PIEA2[,        unique(SUBCUENC_2)]
 # watershed_PIEA_final[, unique(SUBCUENC_2)]
 # river_discharge[, unique(SUBCUENC_2)]
 # str(river_discharge)
-# str(rainfall_PIEA)
+# str(rainfall_PIEA2)
 
+rainfall_PIEA2[SUBCUENC_2== rainfall_PIEA2[,        unique(SUBCUENC_2)][6], unique(Station)]
+rainfall_PIEA2[Station   == rainfall_PIEA2[SUBCUENC_2==rainfall_PIEA2[,        unique(SUBCUENC_2)][6], unique(Station)]]
+# rainfall_PIEA[Station  == rainfall_PIEA2[SUBCUENC_2==rainfall_PIEA2[,        unique(SUBCUENC_2)][6], unique(Station)]]
+### looks good \/
 
-rainfall_PIEA[, SUBCUENC_2 := gsub(weird_char, "Rio", SUBCUENC_2)]
-rainfall_PIEA[, SUBCUENC_2 := gsub("BoquerÃ³n", "Boqueron", SUBCUENC_2)]
-rainfall_PIEA[, SUBCUENC_2 := gsub("CaÃ±o", "Cano", SUBCUENC_2)]
-rainfall_PIEA[, SUBCUENC_2 := gsub(weird_char_ciri, "Ciri", SUBCUENC_2)] # win
-rainfall_PIEA[, SUBCUENC_2 := gsub(weird_char_pequeni, "Pequeni", SUBCUENC_2)] # win
-rainfall_PIEA[, SUBCUENC_2 := gsub("GatÃºn", "Gatun", SUBCUENC_2)]
-rainfall_PIEA[, unique(SUBCUENC_2)]
+rainfall_PIEA2[, SUBCUENC_2 := gsub(weird_char, "Rio", SUBCUENC_2)]
+rainfall_PIEA2[, SUBCUENC_2 := gsub("BoquerÃ³n", "Boqueron", SUBCUENC_2)]
+rainfall_PIEA2[, SUBCUENC_2 := gsub("CaÃ±o", "Cano", SUBCUENC_2)]
+rainfall_PIEA2[, SUBCUENC_2 := gsub(weird_char_ciri, "Ciri", SUBCUENC_2)] # win
+rainfall_PIEA2[, SUBCUENC_2 := gsub(weird_char_pequeni, "Pequeni", SUBCUENC_2)] # win
+rainfall_PIEA2[, SUBCUENC_2 := gsub("GatÃºn", "Gatun", SUBCUENC_2)]
+rainfall_PIEA2[, unique(SUBCUENC_2)]
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                   IV. Seasons
@@ -259,33 +278,45 @@ setkey(river_discharge, year)
 
 river_discharge=river_discharge[seasons]
 river_discharge=river_discharge[complete.cases(River)]
+river_discharge[, date_disch:=as.Date(paste(year, month, day, sep = "/"))]
+river_discharge=river_discharge[complete.cases(date_disch)]
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                   V. Merge
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-setkey(rainfall_PIEA,   SUBCUENC_2, Year, month, day)
+setkey(rainfall_PIEA2,  SUBCUENC_2, year, month, day)
 setkey(river_discharge, SUBCUENC_2, year, month, day)
 
-unique(rainfall_PIEA,   by="SUBCUENC_2")
+unique(rainfall_PIEA2,  by="SUBCUENC_2")
 unique(river_discharge, by="SUBCUENC_2")
 
 # setkey(watershed_PIEA_final, SUBCUENC_2, year, month, day)
 # setkey(watershed_PIEA_final, SUBCUENC_2, Uso)
 
-# data_reg = river_discharge[rainfall_PIEA, allow.cartesian=T, all.x=T]
-# data_reg = rainfall_PIEA[river_discharge, allow.cartesian=T]
+# data_reg = river_discharge[rainfall_PIEA2, allow.cartesian=T, all.x=T]
+# data_reg = rainfall_PIEA2[river_discharge, allow.cartesian=T]
 # data_reg = data_reg[complete.cases(date_read)]
 # data_reg = data_reg[complete.cases(total_rain_day) & complete.cases(discharge_m3_s)]
 
+data_reg = merge(river_discharge, rainfall_PIEA2, by.x=c("SUBCUENC_2", "year", "month", "day"), by.y=c("SUBCUENC_2", "year", "month", "day") , all.x=T)
+# data_reg = data_reg[year > 2004]
+data_reg = data_reg[year > 2003]
+data_reg = data_reg[,.(SUBCUENC_2, River, year, month, day, Dry_season_start_date, Dry_season_end_date, discharge_m3_s, Station, total_rain_day)]
+data_reg[, date_read := as.Date(paste(year, month, day, sep = "-"))]
+data_reg=data_reg[complete.cases(date_read)]
+data_reg[is.na(total_rain_day), total_rain_day:=0]
 
-data_reg = merge(river_discharge, rainfall_PIEA, by.x=c("SUBCUENC_2", "date_read"), by.y=c("SUBCUENC_2", "date_read") , all.x=T)
-data_reg = data_reg[year > 2004]
-data_reg = data_reg[,.(SUBCUENC_2, River, year, month=month.x, date_read, Dry_season_start_date, Dry_season_end_date, discharge_m3_s, Station, total_rain_day)]
+# rivers_used=data_reg[, unique(Station), by="SUBCUENC_2"]
+# rivers_used=rivers_used[,2]
 data_reg[, day_of_dry_season := date_read - Dry_season_start_date]
 data_reg[, day_of_wet_season := date_read - (Dry_season_end_date+1)]
 data_reg[, day_of_season     := ifelse(date_read < Dry_season_end_date+1, day_of_dry_season, day_of_wet_season)]
 data_reg[, dry_dummy         := ifelse(date_read < Dry_season_end_date+1, 1, 0)]
-data_reg[, total_rain_day := ifelse(is.na(total_rain_day), 0, total_rain_day)]
 data_reg=data_reg[year<2016]
+
+######## I think merging discharge and rainfall should be done more carefully
+
+
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                   VI. land use data
