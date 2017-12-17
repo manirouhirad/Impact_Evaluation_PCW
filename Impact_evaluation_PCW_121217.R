@@ -321,14 +321,24 @@ data_reg=data_reg[year<2016]
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                   VI. land use data
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# These are the areas that Blair estimated. I double chekced Trinidad for 2012 and the estimates look good. So I am using the estimates.
+# 
 land_use=read.csv("./Data/Land Covers/land_use_over_time_R_input.csv")
 land_use=data.table(land_use)
 land_use[, unique(River)]
+land_use=land_use[River!="Las Cascadas"]
+
+# col_land_use=colnames(land_use)[3:5]
+# land_use[, (col_land_use):=lapply(.SD, sum), by="River", .SDcols=col_land_use]
+# land_use=unique(land_use, by="River")
 
 # land_use=land_use[River=="Trinidad" | River== "Ciri grande" | River=="Cano Quebrado"]
 land_use=land_use[,foo:=ifelse(X2003==0 & X2008==0 & X2012==0, 1, 0)]
 land_use=land_use[foo==0]
 land_use=land_use[Land.use!="Water"]
+
+land_use[River=="Trinidad"]
+
 
 forest=land_use[Land.use=="Mature Forests" | Land.use=="Secondary Forests" | Land.use=="Forest Plantations"]
 cols=colnames(forest)[3:5]
@@ -357,31 +367,74 @@ urban[, urban_2012_2008:=X2012 - X2008]
 urban[, urban_2008_2003:=X2008 - X2003]
 urban=urban[,.(River, urban_2012_2008, urban_2008_2003)]
 
+
+non_forest=land_use[Land.use=="Pastures" | Land.use=="Crops" | Land.use=="Scrub" | Land.use=="Kans Grass" | Land.use=="Towns" | Land.use=="Barren Soil"]
+cols=colnames(non_forest)[3:5]
+non_forest[, (cols):=lapply(.SD, sum), by="River", .SDcols=cols] 
+non_forest=unique(non_forest, by="River")
+non_forest[, non_forest_2012_2008:=X2012 - X2008]
+non_forest[, non_forest_2008_2003:=X2008 - X2003]
+non_forest=non_forest[,.(River, non_forest_2012_2008, non_forest_2008_2003)]
+
+
 setkey(forest, River)
 setkey(pasture, River)
 setkey(convertible, River)
+setkey(non_forest, River)
 
 land_use_2008_2012=forest[pasture]
 land_use_2008_2012=land_use_2008_2012[convertible]
-land_use_2008_2012[, net:=forest_2012_2008 - convertible_2012_2008]
+land_use_2008_2012=land_use_2008_2012[non_forest]
+land_use_2008_2012[, net_2008_2012:=forest_2012_2008 - convertible_2012_2008]
+
+# land_use_fig[, type:=ifelse(Land.use=="Mature Forests" | Land.use=="Secondary Forests" | Land.use=="Forest Plantations", "forest", 
+#                             ifelse(Land.use=="Pastures" | Land.use=="Crops" | Land.use=="Scrub" | Land.use=="Kans Grass", "convertible", 
+#                                    ifelse(Land.use=="Towns", "towns", "other")))]
+
+
+
+
+forest=land_use[Land.use=="Mature Forests" | Land.use=="Secondary Forests" | Land.use=="Forest Plantations"]
+cols=colnames(forest)[3:5]
+forest[, (cols):=lapply(.SD, sum), by="River", .SDcols=cols] 
+forest=unique(forest, by="River")
+forest=forest[,.(River, f_2003=X2003, f_2008=X2008, f_2012=X2012)]
+
+
+non_forest=land_use[Land.use=="Pastures" | Land.use=="Crops" | Land.use=="Scrub" | Land.use=="Kans Grass" | Land.use=="Towns" | Land.use=="Barren Soil"]
+cols=colnames(non_forest)[3:5]
+non_forest[, (cols):=lapply(.SD, sum), by="River", .SDcols=cols] 
+non_forest=unique(non_forest, by="River")
+non_forest=non_forest[,.(River, n_2003=X2003, n_2008=X2008, n_2012=X2012)]
+
+setkey(forest, River)
+setkey(non_forest, River)
+net=forest[non_forest]
+net[, X2003:=f_2003 - n_2003]
+net[, X2008:=f_2008 - n_2008]
+net[, X2012:=f_2012 - n_2012]
+net=net[,.(River, type="net", X2003, X2008, X2012)]
 
 land_use_fig = copy(land_use)
 land_use_fig[, type:=ifelse(Land.use=="Mature Forests" | Land.use=="Secondary Forests" | Land.use=="Forest Plantations", "forest", 
-                            ifelse(Land.use=="Pastures" | Land.use=="Crops" | Land.use=="Scrub" | Land.use=="Kans Grass", "convertible", 
-                                   ifelse(Land.use=="Towns", "towns", "other")))]
+                            ifelse(Land.use=="Pastures" | Land.use=="Crops" | Land.use=="Scrub" | Land.use=="Kans Grass" | Land.use=="Towns" | Land.use=="Barren Soil", "non_forest" 
+                              , "other"))]
+
+land_use_fig=land_use_fig[type=="forest" | type== "non_forest"]
 
 col_sum=colnames(land_use_fig)[3:5]
 land_use_fig[,(col_sum):=lapply(.SD, sum), by=c("River", "type"), .SDcols=col_sum]
 land_use_fig=unique(land_use_fig, by=c("type", "River"))
 
-pasture_fig[,type:="pasture"]
-land_use_fig=rbind(land_use_fig, pasture_fig)
+land_use_fig=land_use_fig[,.(River, type, X2003, X2008, X2012)]
+land_use_fig=rbind(land_use_fig, net)
+
 setkey(land_use_fig, River)
 land_use_fig=land_use_fig[,.(River, type, X2003, X2008, X2012)]
 land_use_fig=melt(land_use_fig, id=c("River", "type"))
 land_use_fig[, variable:=ifelse(variable=="X2003", 2003, ifelse(variable=="X2008", 2008, 2012))]
-land_use_fig[, foo:=ifelse(variable==2003, value, 0)]
-land_use_fig[, foo:=max(foo), by=c("River", "type")]
+foo_d=land_use_fig[variable==2003, value]
+land_use_fig[, foo:=foo_d]
 land_use_fig[, foo:=value - foo]
 
 ggplot(land_use_fig[type=="forest"], aes(x=factor(variable), y=foo, group=River, col=River))+
@@ -390,34 +443,103 @@ ggplot(land_use_fig[type=="forest"], aes(x=factor(variable), y=foo, group=River,
   xlab("Year")+
   ylab("Change in forest cover from 2003 (ha)")
 
+###### >>>>> I need to get back to this and add them to the figure with ESE estimates as bars <<<<<<<<<
+
+library(gridExtra)
+library(grid)
+
+grid_arrange_shared_legend <- function(...) {
+  plots <- list(...)
+  g <- ggplotGrob(plots[[1]] + theme(legend.position="bottom"))$grobs
+  legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
+  lheight <- sum(legend$height)
+  grid.arrange(
+    do.call(arrangeGrob, lapply(plots, function(x)
+      x + theme(legend.position="none"))),
+    legend,
+    ncol = 1,
+    heights = unit.c(unit(1.5, "npc") - lheight, lheight))
+    # heights=unit(c(2, 2, 2), c("in", "in", "in")))
+  
+}
+
+grid_arrange_shared_legend(lu_fig1, lu_fig2, lu_fig3)
+
+
+lu_fig1<- ggplot(land_use_fig[type=="forest"], aes(x=factor(variable), y=foo, group=River, col=River))+
+  geom_point(size=2)+
+  geom_line(size=1.2)+
+  theme_bw()+
+  xlab("Year")+
+  ylab("Ha")+
+  ggtitle(paste("forest land"))+
+  theme(
+    legend.position = "bottom"
+  )
+
+
+lu_fig2<- ggplot(land_use_fig[type=="net"], aes(x=factor(variable), y=foo, group=River, col=River))+
+  geom_point(size=2)+
+  geom_line(size=1.2)+
+  theme_bw()+
+  xlab("Year")+
+  ylab("Ha")+
+  ggtitle(paste("net forest cover"))+
+  theme(
+    legend.position = "bottom"
+  )
+
+
+
+lu_fig3<- ggplot(land_use_fig[type=="non_forest"], aes(x=factor(variable), y=foo, group=River, col=River))+
+  geom_point(size=2)+
+  geom_line(size=1.2)+
+  theme_bw()+
+  xlab("Year")+
+  ylab("Ha")+
+  ggtitle(paste("non forest land"))+
+  theme(
+    legend.position = "bottom"
+  )
+
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
 ########                                  Data Analysis           ###########
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-trin = watershed_PIEA_final_by_watershed[,SUBCUENC_2][25]
-ciri = watershed_PIEA_final_by_watershed[,SUBCUENC_2][31]
-watershed_PIEA_west = watershed_PIEA_final_by_watershed[SUBCUENC_2==trin | SUBCUENC_2==ciri]
+trin     = watershed_PIEA_final_by_watershed[,SUBCUENC_2][25]
+ciri     = watershed_PIEA_final_by_watershed[,SUBCUENC_2][31]
+cano     = watershed_PIEA_final_by_watershed[,SUBCUENC_2][3]
+Boqueron = watershed_PIEA_final_by_watershed[,SUBCUENC_2][4]
+Gatun    = watershed_PIEA_final_by_watershed[,SUBCUENC_2][8]
 
-watershed_PIEA_west = watershed_PIEA_west[ SUBCUENC_2==trin, SUBCUENC_2:="Trinidad"]
-watershed_PIEA_west = watershed_PIEA_west[ SUBCUENC_2==ciri, SUBCUENC_2:="Ciri grande"]
+watershed_PIEA_west = watershed_PIEA_final_by_watershed[SUBCUENC_2==trin | SUBCUENC_2==ciri | SUBCUENC_2==cano | SUBCUENC_2==Boqueron | SUBCUENC_2==Gatun]
 
-river_discharge_west= river_discharge[River=="Trinidad" | River=="Ciri grande"]
-river_discharge_west=river_discharge_west[date_read < Dry_season_end_date]
-river_discharge_west[, tot_discharge := discharge_m3_s*24*3600/1000000]
-river_discharge_west[, tot_discharge := sum(tot_discharge), by=c("River", "year")]
-river_discharge_west=unique(river_discharge_west, by=c("River", "year"))
-river_discharge_west[, tot_discharge:=mean(tot_discharge), by="River"]
-river_discharge_west=unique(river_discharge_west, by="River")
-river_discharge_west=river_discharge_west[,.(River, tot_discharge)]
+watershed_PIEA_west = watershed_PIEA_west[ SUBCUENC_2==trin,     SUBCUENC_2:="Trinidad"]
+watershed_PIEA_west = watershed_PIEA_west[ SUBCUENC_2==ciri,     SUBCUENC_2:="Ciri grande"]
+watershed_PIEA_west = watershed_PIEA_west[ SUBCUENC_2==cano,     SUBCUENC_2:="Cano Quebrado"]
+watershed_PIEA_west = watershed_PIEA_west[ SUBCUENC_2==Gatun,    SUBCUENC_2:="Gatun"]
+watershed_PIEA_west = watershed_PIEA_west[ SUBCUENC_2==Boqueron, SUBCUENC_2:="Boqueron"]
+
+river_discharge_west= river_discharge[River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado" | River=="Boqueron" | River=="Gatun"]
+river_discharge_west=river_discharge_west[date_disch < Dry_season_end_date]
+river_discharge_west[, tot_discharge := discharge_m3_s*24*3600]  # M3
 
 setkey(watershed_PIEA_west, SUBCUENC_2)
 setkey(river_discharge_west, River)
 
 watershed_PIEA_west=watershed_PIEA_west[river_discharge_west]
-watershed_PIEA_west[, discharge_per_ha        := tot_discharge/V2*10^6]
-watershed_PIEA_west[, extra_discharge         := discharge_per_ha * V1 * .2]
-watershed_PIEA_west[, percent_extra_discharge := extra_discharge/(tot_discharge * 10^6)*100]
+data_pre=watershed_PIEA_west[year < 2008]
+
+data_pre[, discharge_per_ha := tot_discharge/V2] # m3 per day per hectare
+data_pre[, extra_discharge  := discharge_per_ha * V1 * .2] # m3 per day for the entire catchment under 20% ESE
+data_pre[, mean_extra_discharge :=mean(extra_discharge), by=c("SUBCUENC_2", "month")]
+data_pre[, sd_extra_discharge   :=sd(extra_discharge), by=c("SUBCUENC_2", "month")]
+data_pre=unique(data_pre, by=c("SUBCUENC_2", "month"))
+
+data_pre=data_pre[,.(SUBCUENC_2, month, mean_extra_discharge, sd_extra_discharge)]
+
+# data_pre[, percent_extra_discharge := extra_discharge/(tot_discharge * 10^6)*100]
 # watershed_PIEA_final_by_watershed[, water_increase_treatment_ESE_15:=V1*.15]
 
 
@@ -428,83 +550,148 @@ watershed_PIEA_west[, percent_extra_discharge := extra_discharge/(tot_discharge 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
 #                   0. Teeatment before and after ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#################
+
 data_reg_copy_daily = copy(data_reg)
-data_reg_copy_daily[, tot_discharge  := discharge_m3_s*24*3600/1000000]
+data_reg_copy_daily[,total_rain_day:=mean(total_rain_day), by=c("River", "year", "month", "day")]
+data_reg_copy_daily=unique(data_reg_copy_daily, by=c("River", "year", "month", "day"))
+
+data_reg_copy_daily[, tot_discharge  := discharge_m3_s*24*3600] # total daily Million m3
 data_reg_copy_daily[, lag.rain_day   := c(NA, total_rain_day[-.N]), by=c("SUBCUENC_2", "year")]
 data_reg_copy_daily[, lag.rain_day_2 := c(NA, lag.rain_day[-.N]),   by=c("SUBCUENC_2", "year")]
+data_reg_copy_daily[, rain_past_2_days := lag.rain_day + lag.rain_day_2]
 data_reg_copy_daily[, lag.discharge  := c(NA, tot_discharge[-.N]),  by=c("SUBCUENC_2", "year")]
 data_reg_daily_dry = data_reg_copy_daily[dry_dummy==1]
 data_reg_daily_wet = data_reg_copy_daily[dry_dummy==0]
 
-FN_before_after_Trinidad     <- function(year_pre, year_post) {
-  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
-  dt=data_reg_copy_daily[(River=="Trinidad")]
-  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
-  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
-  for(i in 1:12){
-    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge, 
-                     data = dt[ month == i])
-    beta_DiD = summary(DiD_prepost)$coefficients[8,1]
-    std_error= summary(DiD_prepost)$coefficients[8,2]
-    coefs_DiD[i, 2] = beta_DiD
-    coefs_DiD[i, 3] = std_error
+
+
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
   }
   
-  ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD))+
-    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
-    geom_line() +
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+# 
+# FN_before_after_by_river     <- function(year_pre, year_post, River_tr) {
+#   # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+#   dt=data_reg_copy_daily[(River==River_tr)]
+#   dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+#   coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+#   for(i in 1:12){
+#     DiD_prepost = lm(tot_discharge ~ year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge, 
+#                      data = dt[ month == i])
+#     beta_DiD = summary(DiD_prepost)$coefficients[2,1]
+#     std_error= summary(DiD_prepost)$coefficients[2,2]
+#     coefs_DiD[i, 2] = beta_DiD
+#     coefs_DiD[i, 3] = std_error
+#   }
+#   dt_ESE=data_pre[SUBCUENC_2==River_tr]
+#   
+#   l=ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD))+
+#     geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
+#     geom_line() +
+#     geom_point() +
+#     geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge), 
+#                   width=.2, col="red") +
+#     xlab("month")+
+#     ylab("Diff in Diff Coefficient")+
+#     ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+#   return(l)
+# }
+# 
+
+
+
+
+FN_before_after_by_river     <- function(year_pre, year_post, River_tr) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=data_reg_copy_daily[River==River_tr & month < 5]
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt_pre=dt[year_treat==0 ,.(year, month, day, tot_discharge)]
+  dt_pos=dt[year_treat==1 ,.(year, month, day, tot_discharge)]
+  
+  dt_pre[,mean_disch_pre:=mean(tot_discharge), by="month"]
+  dt_pre[,foo:=.N, by="month"]
+  dt_pre[,sd_disch_pre  :=  sd(tot_discharge), by= "month"]
+  dt_pre[,sd_disch_pre  :=  (sd_disch_pre)^2/foo]
+  dt_pre=unique(dt_pre, by="month")
+  dt_pre=dt_pre[,.(month, mean_disch_pre, sd_disch_pre)]
+  
+  dt_pos[,mean_disch_pos:=mean(tot_discharge), by="month"]
+  dt_pos[,foo:=.N, by="month"]
+  dt_pos[,sd_disch_pos  :=  sd(tot_discharge), by= "month"]
+  dt_pos[,sd_disch_pos  :=  (sd_disch_pos)^2/foo]
+  dt_pos=unique(dt_pos, by="month")
+  dt_pos=dt_pos[,.(month, mean_disch_pos, sd_disch_pos)]
+  
+  setkey(dt_pre, month)
+  setkey(dt_pos, month)
+  dt=dt_pre[dt_pos]
+  dt[, sd:=sqrt(sd_disch_pre + sd_disch_pos)]
+  dt[, mean:=mean_disch_pos - mean_disch_pre]
+  
+  dt_ESE=data_pre[SUBCUENC_2==River_tr & month < 5]
+  
+  l=ggplot(data = dt, aes(x=factor(month), y=mean))+
+    geom_errorbar(aes(ymin=mean - 1.96 * sd , ymax=mean + 1.96 * sd), width=.1) +
+    geom_line(aes(group=1)) +
     geom_point() +
+    geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge), 
+                  width=.2, col="red") +
     xlab("month")+
     ylab("Diff in Diff Coefficient")+
     ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  return(l)
 }
 
-FN_coefficients_DiD_west_dry <- function(year_pre, year_post) {
-  dt=data_reg_daily_dry[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
-  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
-  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
-  coefs_DiD = data.table(month=1:4, coefficient_DiD = rep(0 , 4), standard_error_DiD= rep(0, 4))
-  for(i in 1:4){
-    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge, 
-                     data = dt[ month == i])
-    beta_DiD = summary(DiD_prepost)$coefficients[8,1]
-    std_error= summary(DiD_prepost)$coefficients[8,2]
-    coefs_DiD[i, 2] = beta_DiD
-    coefs_DiD[i, 3] = std_error
-  }
-  
-  ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD))+
-    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
-    geom_line() +
-    geom_point() +
-    xlab("month")+
-    ylab("Diff in Diff Coefficient")+
-    ggtitle(paste("Dry season - Before", year_pre, "and after", year_post, sep = " "))
-}
 
-FN_coefficients_DiD_west_wet <- function(year_pre, year_post) {
-  dt=data_reg_daily_wet[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
-  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
-  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
-  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
-  coefs_DiD = data.table(month=1:8, coefficient_DiD = rep(0 , 8), standard_error_DiD= rep(0, 8))
-  for(i in 1:8){
-    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge, 
-                     data = dt[ month == 4+i])
-    beta_DiD = summary(DiD_prepost)$coefficients[8,1]
-    std_error= summary(DiD_prepost)$coefficients[8,2]
-    coefs_DiD[i, 2] = beta_DiD
-    coefs_DiD[i, 3] = std_error
-  }
-  
-  ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD))+
-    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
-    geom_line() +
-    geom_point() +
-    xlab("month")+
-    ylab("Diff in Diff Coefficient")+
-    ggtitle(paste("Rainy season - Before", year_pre, "and after", year_post, sep = " "))
-}
+# dt=data_reg_copy_daily[River=="Trinidad" & month < 5]
+# dt = dt[year < 2008 | year > 2012][ ,year_treat:= ifelse(year>2007, 1, 0)]
+
+
+## West Side
+a1=FN_before_after_by_river(2008, 2012, "Trinidad")
+a3=FN_before_after_by_river(2008, 2012, "Ciri grande")
+a2=FN_before_after_by_river(2008, 2012, "Cano Quebrado")
+
+multiplot(a1, a2, a3, cols=2)
+
+
+## East Side
+FN_before_after_by_river(2008, 2012, "Boqueron")
+FN_before_after_by_river(2008, 2012, "Chagres")
+FN_before_after_by_river(2008, 2012, "Gatun")
+FN_before_after_by_river(2008, 2012, "Pequeni")
 
 
 FN_coefficients_DiD_west(2008, 2012)
