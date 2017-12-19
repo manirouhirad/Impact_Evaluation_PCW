@@ -33,11 +33,13 @@ library(lmtest)
 library(RColorBrewer)
 library(readstata13)
 library(parallel)
-require(stargazer)
+library(stargazer)
 library(AER)
 library(texreg)
 library(gridExtra)
 library(grid)
+library(directlabels)
+
 
 ```
 
@@ -430,21 +432,9 @@ lu_fig1<- ggplot(land_use_fig[type=="forest"], aes(x=factor(variable), y=foo, gr
   xlab("Year")+
   ylab("Ha")+
   ggtitle(paste("forest land"))+
-  theme(
-    legend.position = "bottom"
-  )
-
-
-lu_fig2<- ggplot(land_use_fig[type=="non_forest"], aes(x=factor(variable), y=foo, group=River, col=River))+
-  geom_point(size=2)+
-  geom_line(size=1.2)+
-  theme_bw()+
-  xlab("Year")+
-  ylab("Ha")+
-  ggtitle(paste("non forest land"))+
-  theme(
-    legend.position = "bottom"
-  )
+  scale_colour_discrete(guide = 'none') +
+  scale_x_discrete(expand=c(0, 1)) +
+  geom_dl(aes(label = River), method = list(dl.trans(x = x + 0.2), "last.points", cex = 0.8))
 
 
 lu_fig3<- ggplot(land_use_fig[type=="net"], aes(x=factor(variable), y=foo, group=River, col=River))+
@@ -454,9 +444,22 @@ lu_fig3<- ggplot(land_use_fig[type=="net"], aes(x=factor(variable), y=foo, group
   xlab("Year")+
   ylab("Ha")+
   ggtitle(paste("net forest cover"))+
-  theme(
-    legend.position = "bottom"
-  )
+  scale_colour_discrete(guide = 'none') +
+  scale_x_discrete(expand=c(0, 1)) +
+  geom_dl(aes(label = River), method = list(dl.trans(x = x + 0.2), "last.points", cex = 0.8))
+
+
+
+lu_fig2 <- ggplot(land_use_fig[type=="non_forest"], aes(x=factor(variable), y=foo, group=River, col=River))+
+  geom_point(size=2)+
+  geom_line(size=1.2)+
+  theme_bw()+
+  xlab("Year")+
+  ylab("Ha")+
+  ggtitle(paste("non forest land"))+
+  scale_colour_discrete(guide = 'none') +
+  scale_x_discrete(expand=c(0, 1)) +
+  geom_dl(aes(label = River), method = list(dl.trans(x = x + 0.2), "last.points", cex = 0.8))
 
 
 ###### >>>>> I need to get back to this and add them to the figure with ESE estimates as bars <<<<<<<<<
@@ -506,6 +509,7 @@ setkey(watershed_PIEA_west, SUBCUENC_2)
 setkey(river_discharge_west, River)
 
 watershed_PIEA_west=watershed_PIEA_west[river_discharge_west]
+
 data_pre=watershed_PIEA_west[year < 2008]
 
 data_pre[, discharge_per_ha := tot_discharge/V2] # m3 per day per hectare
@@ -515,6 +519,11 @@ data_pre[, sd_extra_discharge   :=sd(extra_discharge), by=c("SUBCUENC_2", "month
 data_pre=unique(data_pre, by=c("SUBCUENC_2", "month"))
 
 data_pre=data_pre[,.(SUBCUENC_2, month, mean_extra_discharge, sd_extra_discharge)]
+
+
+summary_PIEA=watershed_PIEA_west[,.(Watershed=SUBCUENC_2, PIEA_hecatres=V1, Watershed_hectares=V2, percent_area_in_PIEA=percent_area)]
+summary_PIEA=unique(summary_PIEA, by="Watershed")
+summary_PIEA=rbind(summary_PIEA, list("Chagres", 0, 0, 0), list("Pequeni", 0, 0, 0))
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
 #                   0. Teeatment before and after ####
@@ -620,21 +629,464 @@ a6=FN_before_after_by_river(2008, 2012, "Gatun")
 a7=FN_before_after_by_river(2008, 2012, "Pequeni")
 
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
+#                   0. Monthly regressions for the entire watershed ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#################
+
+FN_coefficients_DiD_monthly     <- function(year_pre, year_post) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    # DiD_prepost = lm(tot_discharge ~ year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge,
+    #                  data = dt[ month == i])
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year)
+                     , data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+    std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  # dt_ESE=data_pre[SUBCUENC_2==River_tr]
+  
+  l=ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    theme_bw()+
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  return(l)
+}
+
+b1=FN_coefficients_DiD_monthly(2008, 2012)
+b2=FN_coefficients_DiD_monthly(2007, 2012)
+b3=FN_coefficients_DiD_monthly(2008, 2013)
+b4=FN_coefficients_DiD_monthly(2007, 2013)
+
+
+FN_coefficients_DiD_monthly_lag     <- function(year_pre, year_post) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    # DiD_prepost = lm(tot_discharge ~ year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge,
+    #                  data = dt[ month == i])
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year)  + lag.discharge
+                     , data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+    std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  # dt_ESE=data_pre[SUBCUENC_2==River_tr]
+  
+  l=ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    theme_bw()+
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  return(l)
+}
+
+b5=FN_coefficients_DiD_monthly_lag(2008, 2012)
+b6=FN_coefficients_DiD_monthly_lag(2007, 2012)
+b7=FN_coefficients_DiD_monthly_lag(2008, 2013)
+b8=FN_coefficients_DiD_monthly_lag(2007, 2013)
+
+### changing treatment year to 2010
+FN_coefficients_DiD_monthly_lag2     <- function(year_pre, year_post) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2009, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    # DiD_prepost = lm(tot_discharge ~ year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge,
+    #                  data = dt[ month == i])
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year)  + lag.discharge
+                     , data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+    std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  # dt_ESE=data_pre[SUBCUENC_2==River_tr]
+  
+  l=ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    theme_bw()+
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  return(l)
+}
+
+b15=FN_coefficients_DiD_monthly_lag2(2010, 2012)
+b16=FN_coefficients_DiD_monthly_lag2(2008, 2012)
+b17=FN_coefficients_DiD_monthly_lag2(2010, 2013)
+b18=FN_coefficients_DiD_monthly_lag2(2007, 2013)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
+#                   0. Annual regressions for the entire watershed for the dry season ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#################
+
+FN_coefficients_DiD_annual_dry     <- function(year_pre) {
+  dt=copy(data_reg_copy_daily)
+  dt=dt[dry_dummy==1]
+  coefs_DiD=data.table()
+  for (i in year_pre:2015) {
+    dt_1=rbind(dt[year< year_pre], dt[year== i])
+    dt_1[, year_treat:=ifelse(year==i, 1, 0)]
+    dt_1=dt_1[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+    
+    DiD_annual = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                    # + factor(year) + lag.discharge
+                    , data = dt_1)
+    beta_DiD = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),1]
+    std_DiD  = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),2]
+    dt_2=data.table(year=i, beta_DiD, std_DiD)
+    coefs_DiD=rbind(coefs_DiD, dt_2)
+  }
+  l=ggplot(data = coefs_DiD, aes(x=factor(year), y=beta_DiD, group=1))+
+    geom_errorbar(aes(ymin=beta_DiD - 1.96 * std_DiD , ymax=beta_DiD + 1.96 * std_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    theme_bw()+
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle("change in dry season discharge\nwithout lagged discharge")
+  return(l)
+}
+
+c1=FN_coefficients_DiD_annual_dry(2008)
+
+
+FN_coefficients_DiD_annual_lag_dry     <- function(year_pre) {
+  dt=copy(data_reg_copy_daily)
+  dt=dt[dry_dummy==1]
+  coefs_DiD=data.table()
+  for (i in year_pre:2015) {
+    dt_1=rbind(dt[year< year_pre], dt[year== i])
+    dt_1[, year_treat:=ifelse(year==i, 1, 0)]
+    dt_1=dt_1[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+    
+    DiD_annual = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + lag.discharge #+ factor(year)
+                    , data = dt_1)
+    beta_DiD = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),1]
+    std_DiD  = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),2]
+    dt_2=data.table(year=i, beta_DiD, std_DiD)
+    coefs_DiD=rbind(coefs_DiD, dt_2)
+  }
+  l=ggplot(data = coefs_DiD, aes(x=factor(year), y=beta_DiD, group=1))+
+    geom_errorbar(aes(ymin=beta_DiD - 1.96 * std_DiD , ymax=beta_DiD + 1.96 * std_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    theme_bw()+
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle("change in dry season discharge\nwith lagged discharge")
+  return(l)
+}
+
+d1=FN_coefficients_DiD_annual_lag_dry(2008)
+
+
+FN_coefficients_DiD_annual_wet     <- function(year_pre) {
+  dt=copy(data_reg_copy_daily)
+  dt=dt[dry_dummy==0]
+  coefs_DiD=data.table()
+  for (i in year_pre:2015) {
+    dt_1=rbind(dt[year< year_pre], dt[year== i])
+    dt_1[, year_treat:=ifelse(year==i, 1, 0)]
+    dt_1=dt_1[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+    
+    DiD_annual = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                    # + factor(year) + lag.discharge
+                    , data = dt_1)
+    beta_DiD = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),1]
+    std_DiD  = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),2]
+    dt_2=data.table(year=i, beta_DiD, std_DiD)
+    coefs_DiD=rbind(coefs_DiD, dt_2)
+  }
+  l=ggplot(data = coefs_DiD, aes(x=factor(year), y=beta_DiD, group=1))+
+    geom_errorbar(aes(ymin=beta_DiD - 1.96 * std_DiD , ymax=beta_DiD + 1.96 * std_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    theme_bw()+
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle("change in wet season discharge\nwithout lagged discharge")
+    
+  return(l)
+}
+
+c2=FN_coefficients_DiD_annual_wet(2008)
+
+
+FN_coefficients_DiD_annual_lag_wet     <- function(year_pre) {
+  dt=copy(data_reg_copy_daily)
+  dt=dt[dry_dummy==0]
+  coefs_DiD=data.table()
+  for (i in year_pre:2015) {
+    dt_1=rbind(dt[year< year_pre], dt[year== i])
+    dt_1[, year_treat:=ifelse(year==i, 1, 0)]
+    dt_1=dt_1[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+    
+    DiD_annual = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + lag.discharge #+ factor(year)
+                    , data = dt_1)
+    beta_DiD = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),1]
+    std_DiD  = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),2]
+    dt_2=data.table(year=i, beta_DiD, std_DiD)
+    coefs_DiD=rbind(coefs_DiD, dt_2)
+  }
+  l=ggplot(data = coefs_DiD, aes(x=factor(year), y=beta_DiD, group=1))+
+    geom_errorbar(aes(ymin=beta_DiD - 1.96 * std_DiD , ymax=beta_DiD + 1.96 * std_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    theme_bw()+
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle("change in wet season discharge\nwithout lagged discharge")
+  return(l)
+}
+
+d2=FN_coefficients_DiD_annual_lag_wet(2008)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
+#                   0. Monthly regressions for the entire watershed for finding N ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#################
+
+FN_coefficients_DiD_monthly_nobs     <- function(year_pre, year_post) {
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year), data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+    std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  coefs_DiD[, CI_lower:=coefficient_DiD - 2.866 * standard_error_DiD]
+  coefs_DiD[, CI_upper:=coefficient_DiD + 2.866 * standard_error_DiD]
+  nnss=nobs(DiD_prepost)
+  
+  coefs_DiD[, m:= ceiling(((2.866 * standard_error_DiD) * sqrt(nnss-2)/coefficient_DiD)^2) + 2]
+  coefs_DiD[, CI_lower_corrected:=coefficient_DiD - 2.866 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[, CI_upper_corrected:=coefficient_DiD + 2.866 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[month > 4, c("CI_lower_corrected", "CI_upper_corrected"):=0]
+  coefs_DiD[, m:=ifelse(coefficient_DiD < 0, "", m)]
+  
+  l=ggplot(data = coefs_DiD[month<5], aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=CI_lower_corrected , ymax=CI_upper_corrected), width=.1) +
+    geom_line() +
+    geom_point() +
+    geom_text(aes(label=m),vjust=-1)+
+    theme_bw()+
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, "\nwithout lagged discharge", "\nN= ", nnss,sep = " "))
+  return(l)
+}
+
+b21=FN_coefficients_DiD_monthly_nobs(2008, 2012)
+
+
+FN_coefficients_DiD_monthly_lag_nobs     <- function(year_pre, year_post) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year)  + lag.discharge
+                     , data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+    std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  coefs_DiD[, CI_lower:=coefficient_DiD - 2.866 * standard_error_DiD]
+  coefs_DiD[, CI_upper:=coefficient_DiD + 2.866 * standard_error_DiD]
+  nnss=nobs(DiD_prepost)
+  
+  coefs_DiD[, m:= ceiling(((2.866 * standard_error_DiD) * sqrt(nnss-2)/coefficient_DiD)^2) + 2]
+  coefs_DiD[, CI_lower_corrected:=coefficient_DiD - 2.866 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[, CI_upper_corrected:=coefficient_DiD + 2.866 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[month > 4, c("CI_lower_corrected", "CI_upper_corrected"):=0]
+  coefs_DiD[, m:=ifelse(coefficient_DiD < 0, "", m)]
+
+  l=ggplot(data = coefs_DiD[month<5], aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=CI_lower_corrected , ymax=CI_upper_corrected), width=.1) +
+    geom_line() +
+    geom_point() +
+    geom_text(aes(label=m),vjust=-1)+
+    theme_bw()+
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, "\nwith lagged discharge", "\nN= ", nnss,sep = " "))
+  return(l)
+}
+
+b22=FN_coefficients_DiD_monthly_lag_nobs(2008, 2012)
+
+
+FN_coefficients_DiD_annual_dry_nobs     <- function(year_pre) {
+  dt=copy(data_reg_copy_daily)
+  dt=dt[dry_dummy==1]
+  coefs_DiD=data.table()
+  for (i in year_pre:2015) {
+    dt_1=rbind(dt[year< year_pre], dt[year== i])
+    dt_1[, year_treat:=ifelse(year==i, 1, 0)]
+    dt_1=dt_1[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+    
+    DiD_annual = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                    # + factor(year) + lag.discharge
+                    , data = dt_1)
+    coefficient_DiD = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),1]
+    standard_error_DiD  = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),2]
+    dt_2=data.table(year=i, coefficient_DiD, standard_error_DiD)
+    coefs_DiD=rbind(coefs_DiD, dt_2)
+  }
+
+  coefs_DiD[, CI_lower:=coefficient_DiD - 1.96 * standard_error_DiD]
+  coefs_DiD[, CI_upper:=coefficient_DiD + 1.96 * standard_error_DiD]
+  nnss=nobs(DiD_annual)
+  
+  coefs_DiD[, m:= ceiling(((1.96 * standard_error_DiD) * sqrt(nnss-2)/coefficient_DiD)^2) + 2]
+  coefs_DiD[, CI_lower_corrected:=coefficient_DiD - 1.96 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[, CI_upper_corrected:=coefficient_DiD + 1.96 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[, m:=ifelse(coefficient_DiD < 0, "", m)]
+
+
+  
+  l=ggplot(data = coefs_DiD, aes(x=factor(year), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=CI_lower_corrected , ymax=CI_upper_corrected), width=.1) +
+    geom_line() +
+    geom_point() +
+    geom_text(aes(label=m),vjust=-1)+
+    theme_bw()+
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("change in dry season discharge\nwithout lagged discharge", "\nN= ", nnss,sep = " "))
+  return(l)
+}
+
+c21=FN_coefficients_DiD_annual_dry_nobs(2008)
+
+
+FN_coefficients_DiD_annual_lag_dry_nobs     <- function(year_pre) {
+  dt=copy(data_reg_copy_daily)
+  dt=dt[dry_dummy==1]
+  coefs_DiD=data.table()
+  for (i in year_pre:2015) {
+    dt_1=rbind(dt[year< year_pre], dt[year== i])
+    dt_1[, year_treat:=ifelse(year==i, 1, 0)]
+    dt_1=dt_1[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+    
+    DiD_annual = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                    + lag.discharge# + factor(year) 
+                    , data = dt_1)
+    coefficient_DiD = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),1]
+    standard_error_DiD  = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),2]
+    dt_2=data.table(year=i, coefficient_DiD, standard_error_DiD)
+    coefs_DiD=rbind(coefs_DiD, dt_2)
+  }
+
+  coefs_DiD[, CI_lower:=coefficient_DiD - 1.96 * standard_error_DiD]
+  coefs_DiD[, CI_upper:=coefficient_DiD + 1.96 * standard_error_DiD]
+  nnss=nobs(DiD_annual)
+  
+  coefs_DiD[, m:= ceiling(((1.96 * standard_error_DiD) * sqrt(nnss-2)/coefficient_DiD)^2) + 2]
+  coefs_DiD[, CI_lower_corrected:=coefficient_DiD - 1.96 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[, CI_upper_corrected:=coefficient_DiD + 1.96 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[, m:=ifelse(coefficient_DiD < 0, "", m)]
+
+  
+  l=ggplot(data = coefs_DiD, aes(x=factor(year), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=CI_lower_corrected , ymax=CI_upper_corrected), width=.1) +
+    geom_line() +
+    geom_point() +
+    geom_text(aes(label=m),vjust=-1)+
+    theme_bw()+
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("change in dry season discharge\nwith lagged discharge", "\nN= ", nnss,sep = " "))
+  return(l)
+}
+
+d21=FN_coefficients_DiD_annual_lag_dry_nobs(2008)
+
+
+
+
 ```
-## Introduction
+# Introduction
 
-Most studies of the program evaluation of PES programs have focused on changes in forest cover as a procy for the hydrological ecosystem services ( [Borner et al, 2017](http://www.sciencedirect.com/science/article/pii/S0305750X17300827#b0225)). Here, we directly focus on the ecosystem services in question, i.e. river discharge during dry and wet seasons (and potentially sediment load) for the Panama Canal Watershed. For hydrological services or forests, it is important to study the changes at the policy relevant scale, i.e. watershed scale. 
+We study the provision of hydrological services from agroforestry programs in the Panama Canal Watershed.
+Most studies of the program evaluation of PES programs have focused on changes in forest cover as a proxy for the hydrological ecosystem services ( [Borner et al, 2017](http://www.sciencedirect.com/science/article/pii/S0305750X17300827#b0225)). Here, we directly focus on the ecosystem services in question, i.e. river discharge during dry and wet seasons (and potentially sediment load) for the Panama Canal Watershed. For hydrological services, it is important to study the changes at the policy relevant scale, i.e. watershed scale. 
 
 
-
-[Alix-Garcia et al. (2012)](http://le.uwpress.org/content/88/4/613.refs) studied the impact of PES program in Mexico which aimed at providing hydrological services through forest conservation. They used applicant pool to create the counterfactual, i.e. those who got the payment vs those who didn't. 
-They found that deforestation rates were 50% lower in enrolled parcels, but that deforestation rates were generally low, which suggested that potential additionality was limited to begin with.
+[Alix-Garcia et al. (2012)](http://le.uwpress.org/content/88/4/613.refs) studied the impact of PES program in Mexico which aimed at providing hydrological services through forest conservation. They used applicant pool to create the counterfactual, i.e. those who got the payment vs those who didn't. They found that deforestation rates were 50% lower in enrolled parcels, but that deforestation rates were generally low, which suggested that potential additionality was limited to begin with.
 
 <!-- The evaluated outcomes are often proxies of actual environmental services, such as forest cover, through which programs aim at achieving additional service provision (e.g., carbon sequestration). --> 
 
 
+When Canal operations were transferred to Panamanian government authorities in 1999, the ACP assumed
+responsibility for conserving water and land resources in the Canal watershed. Despite having developed a
+watershed land use plan, changes in land uses might eventually jeopardize the availability of water resources
+and increase sedimentation within the canal. To address this situation, since 2006 the ACP has implemented
+an Environmental Economic Incentive Program (PIEA in Spanish) designed to promote biodiversity and
+forestry restoration and protection. Building on this experience, the pilot project will aim to restore about
+10,000 hectares of degraded land ( [USAID](https://www.land-links.org/wp-content/uploads/2016/09/USAID_Land_Tenure_TGCC_Panama_Assessment_En.pdf))
 
-## Study Area and Data
+Four type of programs were considered in the PIEA. The goals of the four programs are as follows:
+
++ Agroforestry: Ensure food security through the promotion of crops such as rice, beans, and corn; promote income opportunities from sale of cash crops such as coffee and pineapple; and create economic activity and entrepreneurship.
++ Commercial Reforestation: Planting and harvesting commercially viable tree species for sale.
++ Conservation Reforestation: Planting native tree and plant species for conservation and ecosystem benefits.
++ Silvopasture: Improve cattle farms while conserving natural resources; includes construction of river fords, drinking areas for cattle, living fences, and other improvements.
+
+
+# Study Area and Data
 
 Sources of data:
 
@@ -645,11 +1097,13 @@ Sources of data:
 + start of the dry season date from the ACP
 + PCW watersheds
 
+There 3232 ha in total enrolled in PIEA program. This is 2.7% of total convertible lands in the watershed and 3.6% of private convertible lands. Min area is less than 1 hectare and max is 534 hectares. Ciri Grande and Trinidad have some of the largest enrollments among the watersheds. Most of the land is all allocated to agoroforestry and silvopastoral uses. More than 87% of the commercial reforestation is in the Quebrada Aguas Claras region east of the canal that we do not have discharge data for. 
+
 ### Distribution of PIEA hectares across the watershed 
 
 We can see that most of the changes have taken place in the western side of the watershed.
 
-note that we do not have discharge data for all the watersheds that include hectares enrolled in the PIEA program, so even though some catchments have had significant participation (area-wise), we do not observe changes of cischarge in those catchments. Same is valid for control catchments.
+Note that we do not have discharge data for all the watersheds that include hectares enrolled in the PIEA program, so even though some catchments have had significant participation (area-wise), we do not observe changes of discharge in those catchments. Same is valid for control catchments.
 
 ```{r, echo=FALSE, warning=FALSE}
 ggplot(fills.df) + 
@@ -676,53 +1130,63 @@ ggplot(fills.df) +
 
 ```
 
-
-### Changes in land use covers from 2003 to 2012
-
-Figures below show changes in forested and non-forested land covers across watersheds. Forest cover includes, mature forest, secondary forest, and plantations, while non-forest land includes pasture, crops, scrub, canal gras, towns, and barren soil that potentially have larger rainy season discharge and smaller sponge effect. 
-2008 can be taken as the baseline for the project, so if we trust the land cover maps, 2003 to 2008 show the pre-treatment changes in land use in each of the watersheds.
-
-We can see that the eastern watersheds except Chagres have lost forest cover, while western catchments have gained forest cover. Cano Quebrado has had small changes in forest cover. 
-The increase in non-forest land has also been increasing in the eastern catchments. Cano Quebrado has also expirienced increase in non-forest land which is mainly towns and crop lands. In total, Ciri Grande and Trinidad are the only catchments that have gained forest land while the other catchments have lost forest land cover. Using only PIEA hectares and taking Trinidad and Ciri Grande as treatment and others as control should provide us with an upper bound on the effect of land use changes on ecosystems of interest.
-
-<span style="color:red"> Provide number of hectares in each watershed. </span>
-
-```{r, echo=FALSE, warning=FALSE, fig.height=11}
-grid_arrange_shared_legend(lu_fig1, lu_fig2, lu_fig3)
-
-```
-
-
-### Summary Statistics
-
-
 The number of hectares enrolled is at least comparable to the study by [Alix-Garcia et al. (2012)](http://le.uwpress.org/content/88/4/613.refs).
 
 
+### Changes in land use covers from 2003 to 2012
 
+Figures below show changes in forested and non-forested land covers across watersheds. Forest cover includes, mature forest, secondary forest, and plantations, while non-forest land includes pasture, crops, scrub, canal grass, towns, and barren soil that potentially have larger rainy season discharge and smaller sponge effect. 
+2008 can be taken as the baseline for the project, so if we trust the land cover maps, 2003 to 2008 show the pre-treatment changes in land use in each of the watersheds.
+
+We can see that the eastern watersheds except Chagres have lost forest cover, while western catchments have gained forest cover. Cano Quebrado has had small changes in forest cover. 
+The increase in non-forest land has also been increasing in the eastern catchments. Cano Quebrado has also experienced increase in non-forest land which is mainly towns and crop lands. In total, Ciri Grande and Trinidad are the only catchments that have gained forest land while the other catchments have lost forest land cover. Using only PIEA hectares and taking Trinidad and Ciri Grande as treatment and others as control should provide us with an upper bound on the effect of land use changes on ecosystems of interest.
+
+### <span style="color:red"> The last figure is double counting </span>
+
+
+```{r, echo=FALSE, warning=FALSE, fig.height=11}
+# grid_arrange_shared_legend(lu_fig1, lu_fig2, lu_fig3)
+multiplot(lu_fig1, lu_fig2, lu_fig3, cols = 1)
+
+# <span style="color:red"> Provide number of hectares in each watershed. </span>
+
+```
+
+### Hectares in PIEA
+
+```{r, results='asis', echo=FALSE}
+stargazer(summary_PIEA, type = "html", digits = 1, summary = F, rownames = FALSE)
+
+```
+
+### Summary Statistics
+
+Working on it (somehow showing summary stats by group is not easy in rmarkdown!)
+
+
+# Results
 
 ## Changes in daily discharge before and after treatment
 
-Figures below show the treatment coefficient for each catchment. The unit of observation is daily discharge volume in cubic meters. The treatmment year is assumed to be 2008 since the PIEA program went into effect (approximately) around 2008. Before 2008 and after 2012 on the grphs simply means that we are comparing 2004-2007 as pre-treatment and 2012-2015 as post-treatment years. These graphs show the changes in for each catchment lumped by the month.
-No controls are included in these regressions. The coefficient basically compare the average daily discharge before and after the treatment for each month. The standard errors have been boosted to consider for the fact that we picked each month as a sample.
-
+Figures below show the change in mean daily discharge from before 2008 to after 2012 for each catchment in cubic meters. The treatment year is assumed to be 2008 since the PIEA program went into effect (approximately) around 2008. Before 2008 and after 2012 on the graphs simply means that we are comparing 2004-2007 as pre-treatment and 2012-2015 as post-treatment years. These graphs show the changes in for each catchment aggregated by the month.
 
 
 The first three figures show the changes in daily discharge on the west side of the canal. What these figures show is the distribution of difference in mean of daily discharge before 2008 and after 2012 in black and expected increase in discharge under 20% ESE in red for the dry season. The red bars basically show:
 
 $$
-\frac{hectares\;\; in\;\; PIEA}{total\;\;hectares\;\;in\;\;catchment} \times baseline\;\;daily\;\;discharge
+\frac{hectares\;\; in\;\; PIEA}{total\;\;hectares\;\;in\;\;catchment} \times baseline\;\;daily\;\;discharge \times 20\%
 $$
-in the pre-treatment period (before 2008). The variation comes from the variation of daily discharge at each month.
+in the pre-treatment period (before 2008). The variation comes from the variation of daily discharge at each month. We can see that the expected increase in daily discharge is small compared to variations of change in daily discharge (which is $\frac{\sigma_{pre}^2}{n_{pre}} + \frac{\sigma_{post}^2}{n_{post}}$ ). These red bars are particularly interesting because I had imagined that they would be higher than were they are, but these bars are themselves very close to zero relative to the variations of the daily discharge. 
 
-Ciri Grande and Trinidad had the most intensive PIEA participation hectares, while Cano Quebrado almost did not have any program related land use change. However, as we can see the changes are not distinguishable from zero. Cano Quebrado is perhaps the best control for these two catchments as it is in the western side of the canal. A quick look at the figures suggest small treatment effects. 
+Ciri Grande and Trinidad had the most intensive PIEA participation hectares, while Cano Quebrado almost did not have any program related land use change. Cano Quebrado is perhaps the best control for these two catchments as it is in the western side of the canal. A quick look at the figures suggest small treatment effects if any. Note that these graphs are showing the averages and there are no controls.
+
 
 ```{r, echo=FALSE, warning=FALSE}
 ## West Side
 multiplot(a1, a2, a3, cols=2)
 ```
 
-Next four figures show the changes in daily discharge on the east side of the canal:
+Next four figures show the changes in daily discharge on the east side of the canal. Chagres has experienced an increase in net forest cover and this maybe the reason behind an increase in daily discharge. It's difficult to explain the other changes. 
 
 ```{r, echo=FALSE, warning=FALSE}
 ## East Side
@@ -732,19 +1196,78 @@ multiplot(a4, a5, a6, a7, cols=2)
 
 ## Diff-in-Diff estimates:
 
+### Monthly estimates:
 
+Next, we consider the diff-in-diff estimates. We consider Trinidad and Ciri Grande as treatment and other catchments as control. We also control for faily and lagged daily rain and number of days since the start of the dry season. The unit of observation is catchment-day.
+
+$$total~discharge = \beta_0 ~ treatment + \beta_1 ~ years ~ treated + \beta_3 ~ treatment \times year ~ treated + \\
+\beta_4 ~ daily ~ rain + \beta_5 ~ lagged ~ daily ~ rain + \beta_6 ~   day ~ of ~ dry ~ (or ~ wet) ~ season + year ~ FE + \epsilon$$
+
+Figures below show $\beta_3$ for each month. The standard errors have been boosted to consider for the fact that we picked each month as a sample. However, they have not been clustered.
+
+Add the red lines from data_pre here too.
+
+```{r, echo=FALSE, warning=FALSE}
+multiplot(b1, b2, b3, b4, cols=2)
+
+```
+
+
+### Including lagged discharge due to autocorrelation:
+
+```{r, echo=FALSE, warning=FALSE}
+multiplot(b5, b6, b7, b8, cols=2)
+
+```
+
+### Changing treatment year to 2010
+
+```{r, echo=FALSE, warning=FALSE}
+multiplot(b15, b16, b17, b18, cols=2)
+
+```
+
+The prefered figure to look at in all of the three sets of figures above is before 2008 and after 2012 as it includes more observations (after 2013 only includes two years of post-treatment and before 2007 inlcudes only two years of pre-treatment). Overall, the coefficients seem robust across specifications. These estimates do not completely reject the idea of existence of the sponge effect, especially given that the expected effects were very small. They suggest that in dry months across all sepcifications we see positive but very imprecisely estimated effects from land use change. In the wet season, it is more difficult to see negative effecets.
+
+
+### Changes in year-to-year dry season discharge over time
+
+Next, we look at the changes in dry seaosn and wet discharge across years. We set the baseline (pre-treatment) at 2004-2007 and compare dry season discharge to the baseline. The results suggest that we cannot observe a pttern over time in discharge. We can also see that 2013 shows an increase in wet season discharge which is perhaps driving the wet season estimates in the figures above. 
+
+
+```{r, echo=FALSE, warning=FALSE}
+multiplot(c1, c2, d1, d2, cols=2)
+
+```
+
+## Power Calculations
+
+How large shuold n be to provide us with estimates that are different from zero but not different from 20% ESE?
+
+A simple power calculation would be to increase n or find $m$ such that when we multiply se by $\frac{\sqrt(n-2)}{\sqrt(m-2)}$, the confidence interval does not inclde zero. The figures below show the number of observations required for positive coefficients of change in daily discharge to be different from zero at 5% (Eli and I have also talked about testing what is the probability that we are wrong for the negative coefficients and that they are actually positive. However, in the new version most of the coefficients are positive. So I did not pursue that yet.)
+
+To put things in perspective, 4321 observations required is around 14 *more* years of data for the month of February and 6,224 observations for dry season in 2015 is 0.3 more years of data.
+
+```{r, echo=FALSE, warning=FALSE, fig.height=8}
+# grid_arrange_shared_legend(lu_fig1, lu_fig2, lu_fig3)
+multiplot(b21, c21, b22, d21, cols = 2)
+
+# <span style="color:red"> Provide number of hectares in each watershed. </span>
+
+```
 
 ## Next Steps
 
-What is the explanation behind small changes in discharge?
+### <span style="color:red"> Other qustions we can ask/ pieces we can add: </span>
 
-+ Did PIEA result in land use changes? It's possible that PIEA did not change land uses. compare land use for PIEA polygons before and after treatment. Also we can do matching since we have the actual parcels in the Ciri Grande and Trinidad catchments, but this is more of an additionality story.
-+ Are there other deforestation activity that cancled out the effect of agroforestry programs?
-+ Is it possible that low quality lands participated in the program?
 
-Compare changes from 2004 to 2008 to changes from 2008 to 2013 
++ Did PIEA result in land use changes? compare land use for PIEA polygons before and after treatment. Also we can do matching since we have the actual parcels in the Ciri Grande and Trinidad catchments, but this is more of an additionality story.
++ Are there other deforestation activity that canceled out the effect of agroforestry programs? based on the land cover data it looks like it's actually the other way around
++ What are the characteristics of parcels that participated in the program compared to other parcels? 
++ Compare changes from 2004 to 2008 to changes from 2008 to 2013 
++ explore sediment volume as the other dependent variable
++ Annual forest cover loss between 2000 and 2016 is available from [Forest Watch](http://www.globalforestwatch.org/map/10/8.99/-79.58/PAN/grayscale/forest2000,loss/663?tab=analysis-tab&begin=2001-01-01&end=2017-01-01&threshold=30&dont_analyze=true). Do we pursue a panel analysis?
 
-explore sediment volume as the other dependent variable
 
 
 

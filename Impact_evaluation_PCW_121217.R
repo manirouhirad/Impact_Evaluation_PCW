@@ -458,12 +458,13 @@ grid_arrange_shared_legend <- function(...) {
       x + theme(legend.position="none"))),
     legend,
     ncol = 1,
-    heights = unit.c(unit(1.5, "npc") - lheight, lheight))
-    # heights=unit(c(2, 2, 2), c("in", "in", "in")))
+    heights = unit.c(unit(1, "npc") - lheight, lheight))
+  # heights=unit(c(2, 2, 2), c("in", "in", "in")))
   
 }
 
-grid_arrange_shared_legend(lu_fig1, lu_fig2, lu_fig3)
+
+library(directlabels)
 
 
 lu_fig1<- ggplot(land_use_fig[type=="forest"], aes(x=factor(variable), y=foo, group=River, col=River))+
@@ -473,9 +474,9 @@ lu_fig1<- ggplot(land_use_fig[type=="forest"], aes(x=factor(variable), y=foo, gr
   xlab("Year")+
   ylab("Ha")+
   ggtitle(paste("forest land"))+
-  theme(
-    legend.position = "bottom"
-  )
+  scale_colour_discrete(guide = 'none') +
+  scale_x_discrete(expand=c(0, 1)) +
+  geom_dl(aes(label = River), method = list(dl.trans(x = x + 0.2), "last.points", cex = 0.8))
 
 
 lu_fig2<- ggplot(land_use_fig[type=="net"], aes(x=factor(variable), y=foo, group=River, col=River))+
@@ -485,23 +486,28 @@ lu_fig2<- ggplot(land_use_fig[type=="net"], aes(x=factor(variable), y=foo, group
   xlab("Year")+
   ylab("Ha")+
   ggtitle(paste("net forest cover"))+
-  theme(
-    legend.position = "bottom"
-  )
+  scale_colour_discrete(guide = 'none') +
+  scale_x_discrete(expand=c(0, 1)) +
+  geom_dl(aes(label = River), method = list(dl.trans(x = x + 0.2), "last.points", cex = 0.8))
 
 
 
-lu_fig3<- ggplot(land_use_fig[type=="non_forest"], aes(x=factor(variable), y=foo, group=River, col=River))+
+lu_fig3 <- ggplot(land_use_fig[type=="non_forest"], aes(x=factor(variable), y=foo, group=River, col=River))+
   geom_point(size=2)+
   geom_line(size=1.2)+
   theme_bw()+
   xlab("Year")+
   ylab("Ha")+
   ggtitle(paste("non forest land"))+
-  theme(
-    legend.position = "bottom"
-  )
+  scale_colour_discrete(guide = 'none') +
+  scale_x_discrete(expand=c(0, 1)) +
+  geom_dl(aes(label = River), method = list(dl.trans(x = x + 0.2), "last.points", cex = 0.8))
 
+
+
+
+
+multiplot(lu_fig1, lu_fig2, lu_fig3, cols = 1)
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
@@ -529,6 +535,11 @@ setkey(watershed_PIEA_west, SUBCUENC_2)
 setkey(river_discharge_west, River)
 
 watershed_PIEA_west=watershed_PIEA_west[river_discharge_west]
+
+summary_PIEA=watershed_PIEA_west[,.(Watershed=SUBCUENC_2, PIEA_hecatres=V1, Total_hectares=V2, percent_area_in_PIEA=percent_area)]
+summary_PIEA=unique(summary_PIEA, by="Watershed")
+summary_PIEA=rbind(summary_PIEA, list("Chagres", 0, 0, 0), list("Pequeni", 0, 0, 0))
+
 data_pre=watershed_PIEA_west[year < 2008]
 
 data_pre[, discharge_per_ha := tot_discharge/V2] # m3 per day per hectare
@@ -554,7 +565,6 @@ data_pre=data_pre[,.(SUBCUENC_2, month, mean_extra_discharge, sd_extra_discharge
 data_reg_copy_daily = copy(data_reg)
 data_reg_copy_daily[,total_rain_day:=mean(total_rain_day), by=c("River", "year", "month", "day")]
 data_reg_copy_daily=unique(data_reg_copy_daily, by=c("River", "year", "month", "day"))
-
 data_reg_copy_daily[, tot_discharge  := discharge_m3_s*24*3600] # total daily Million m3
 data_reg_copy_daily[, lag.rain_day   := c(NA, total_rain_day[-.N]), by=c("SUBCUENC_2", "year")]
 data_reg_copy_daily[, lag.rain_day_2 := c(NA, lag.rain_day[-.N]),   by=c("SUBCUENC_2", "year")]
@@ -563,7 +573,7 @@ data_reg_copy_daily[, lag.discharge  := c(NA, tot_discharge[-.N]),  by=c("SUBCUE
 data_reg_daily_dry = data_reg_copy_daily[dry_dummy==1]
 data_reg_daily_wet = data_reg_copy_daily[dry_dummy==0]
 
-
+# sum_stats=data_reg_copy_daily[,.(River, )]
 
 
 multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
@@ -662,16 +672,23 @@ FN_before_after_by_river     <- function(year_pre, year_post, River_tr) {
   
   dt_ESE=data_pre[SUBCUENC_2==River_tr & month < 5]
   
-  l=ggplot(data = dt, aes(x=factor(month), y=mean))+
-    geom_errorbar(aes(ymin=mean - 1.96 * sd , ymax=mean + 1.96 * sd), width=.1) +
-    geom_line(aes(group=1)) +
-    geom_point() +
-    geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge), 
+  # l=ggplot(data = dt, aes(x=factor(month), y=mean))+
+  #   geom_errorbar(aes(ymin=mean - 1.96 * sd , ymax=mean + 1.96 * sd), width=.1) +
+  #   geom_line(aes(group=1)) +
+  #   geom_point() +
+  #   geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge), 
+  #                 width=.2, col="red") +
+  #   xlab("month")+
+  #   ylab("Diff in Diff Coefficient")+
+  #   ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  l=ggplot(data = dt_ESE, aes(x=factor(month)))+
+    geom_errorbar(aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge), 
                   width=.2, col="red") +
     xlab("month")+
     ylab("Diff in Diff Coefficient")+
     ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
-  return(l)
+  
+    return(l)
 }
 
 
@@ -703,6 +720,95 @@ FN_coefficients_DiD_west(2007, 2012)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
 #                   0. diff-in-diff with daily data for the entire year ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#############
+
+FN_coefficients_DiD_monthly_nobs     <- function(year_pre, year_post) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year), data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+    std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  coefs_DiD[, CI_lower:=coefficient_DiD - 2.866 * standard_error_DiD]
+  coefs_DiD[, CI_upper:=coefficient_DiD + 2.866 * standard_error_DiD]
+  nnss=nobs(DiD_prepost)
+  
+  coefs_DiD[, m:= ceiling(((2.866 * standard_error_DiD) * sqrt(nnss-2)/coefficient_DiD)^2) + 2]
+  coefs_DiD[, CI_lower_corrected:=coefficient_DiD - 2.866 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[, CI_upper_corrected:=coefficient_DiD + 2.866 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+  coefs_DiD[month > 4, c("CI_lower_corrected", "CI_upper_corrected"):=0]
+  
+  l=ggplot(data = coefs_DiD[month<5], aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=CI_lower_corrected , ymax=CI_upper_corrected), width=.1) +
+    geom_line() +
+    geom_point() +
+    geom_text(aes(label=m),vjust=-20)+
+    theme_bw()+
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  return(l)
+}
+
+FN_coefficients_DiD_monthly_nobs(2008, 2012)
+
+
+
+
+dt=copy(data_reg_copy_daily)
+dt = dt[year < 2008 | year > 2012][ ,year_treat:= ifelse(year>2007, 1, 0)]
+dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+for(i in 1:12){
+  DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                   + factor(year), data = dt[ month == i])
+  beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+  std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+  coefs_DiD[i, 2] = beta_DiD
+  coefs_DiD[i, 3] = std_error
+}
+coefs_DiD[, CI_lower:=coefficient_DiD - 2.866 * standard_error_DiD]
+coefs_DiD[, CI_upper:=coefficient_DiD + 2.866 * standard_error_DiD]
+nnss=nobs(DiD_prepost)
+
+coefs_DiD[, m:= ceiling(((2.866 * standard_error_DiD) * sqrt(nnss-2)/coefficient_DiD)^2) + 2]
+coefs_DiD[, CI_lower_corrected:=coefficient_DiD - 2.866 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+coefs_DiD[, CI_upper_corrected:=coefficient_DiD + 2.866 * standard_error_DiD  * sqrt(nnss-2)/sqrt(m-2)]
+coefs_DiD[month > 4, c("CI_lower_corrected", "CI_upper_corrected"):=0]
+
+l=ggplot(data = coefs_DiD[month<5], aes(x=factor(month), y=coefficient_DiD, group=1))+
+  geom_errorbar(aes(ymin=CI_lower_corrected , ymax=CI_upper_corrected), width=.1) +
+  geom_line() +
+  geom_point() +
+  geom_text(aes(label=m),vjust=-20)+
+  theme_bw()+
+  # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+  #               width=.2, col="red") +
+  xlab("month")+
+  ylab("Diff in Diff Coefficient")
+
+
++
+  ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+
+
+
+
+
+
+
+
+
+
+
 
 FN_coefficients_DiD_annual     <- function(year_pre, year_post) {
   # dt=data_reg_copy_daily
@@ -739,6 +845,8 @@ FN_coefficients_DiD_annual_wet <- function(year_pre, year_post) {
   a=summary(DiD_prepost)
   return(a)
 }
+
+
 
 
 FN_coefficients_DiD_annual(2008, 2012) 
@@ -781,13 +889,40 @@ FN_coefficients_DiD_annual(2008, 2013)
 #                   a. with lagged discharge ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 
-data_reg_copy_daily = copy(data_reg)
-data_reg_copy_daily[, tot_discharge  := discharge_m3_s*24*3600/1000000]
-data_reg_copy_daily[, lag.rain_day   := c(NA, total_rain_day[-.N]), by=c("SUBCUENC_2", "year")]
-data_reg_copy_daily[, lag.rain_day_2 := c(NA, lag.rain_day[-.N]),   by=c("SUBCUENC_2", "year")]
-data_reg_copy_daily[, lag.discharge  := c(NA, tot_discharge[-.N]),  by=c("SUBCUENC_2", "year")]
-data_reg_daily_dry = data_reg_copy_daily[dry_dummy==1]
-data_reg_daily_wet = data_reg_copy_daily[dry_dummy==0]
+
+FN_coefficients_DiD_monthly     <- function(year_pre, year_post) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    # DiD_prepost = lm(tot_discharge ~ year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge,
+    #                  data = dt[ month == i])
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year)
+                     , data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[12,1]
+    std_error= summary(DiD_prepost)$coefficients[12,2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  # dt_ESE=data_pre[SUBCUENC_2==River_tr]
+  
+  l=ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  return(l)
+}
+
+FN_coefficients_DiD_monthly(2008, 2012)
+
 
 FN_coefficients_DiD_west     <- function(year_pre, year_post) {
   # dt=data_reg_daily_dry[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
@@ -879,7 +1014,7 @@ FN_coefficients_DiD_west(2007, 2012)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 #                   b. without lagged discharge ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 
 FN_coefficients_DiD_west     <- function(year_pre, year_post) {
   dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
@@ -967,7 +1102,7 @@ FN_coefficients_DiD_west(2007, 2012)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 #                   c. without lagged discharge + squared day of season ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 
 FN_coefficients_DiD_west     <- function(year_pre, year_post) {
   dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
@@ -1147,7 +1282,7 @@ FN_coefficients_DiD_west(2009, 2012)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
 #                   e. Entire Watershed ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 
 FN_coefficients_DiD_all     <- function(year_pre, year_post) {
   dt=data_reg_copy_daily
@@ -1238,7 +1373,7 @@ FN_coefficients_DiD_all(2007, 2012)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
 #                   f. Entire Watershed with year fixed effects ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 
 FN_coefficients_DiD_all     <- function(year_pre, year_post) {
   dt=data_reg_copy_daily
@@ -1317,6 +1452,131 @@ FN_coefficients_DiD_all(2008, 2012)
 FN_coefficients_DiD_all_dry(2008, 2012)
 FN_coefficients_DiD_all_wet(2008, 2012)
 
+
+
+
+
+
+
+
+
+
+
+FN_coefficients_DiD_monthly     <- function(year_pre, year_post) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    # DiD_prepost = lm(tot_discharge ~ year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge,
+    #                  data = dt[ month == i])
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year)  + lag.discharge
+                     , data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+    std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  # dt_ESE=data_pre[SUBCUENC_2==River_tr]
+  
+  l=ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  return(l)
+}
+
+FN_coefficients_DiD_monthly(2008, 2012)
+FN_coefficients_DiD_monthly(2007, 2012)
+FN_coefficients_DiD_monthly(2008, 2013)
+FN_coefficients_DiD_monthly(2007, 2013)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ####
+#                   f. Entire Watershed for annual effects ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
+
+FN_coefficients_DiD_monthly     <- function(year_pre, year_post) {
+  # dt=data_reg_copy_daily[(River=="Trinidad" | River=="Ciri grande" | River=="Cano Quebrado")]
+  dt=copy(data_reg_copy_daily)
+  dt = dt[year < year_pre | year > year_post][ ,year_treat:= ifelse(year>2007, 1, 0)]
+  dt=dt[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+  coefs_DiD = data.table(month=1:12, coefficient_DiD = rep(0 , 12), standard_error_DiD= rep(0, 12))
+  for(i in 1:12){
+    # DiD_prepost = lm(tot_discharge ~ year_treat + total_rain_day + lag.rain_day + day_of_season + lag.discharge,
+    #                  data = dt[ month == i])
+    DiD_prepost = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                     + factor(year)  + lag.discharge
+                     , data = dt[ month == i])
+    beta_DiD = summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),1]
+    std_error= summary(DiD_prepost)$coefficients[nrow(summary(DiD_prepost)$coefficients),2]
+    coefs_DiD[i, 2] = beta_DiD
+    coefs_DiD[i, 3] = std_error
+  }
+  # dt_ESE=data_pre[SUBCUENC_2==River_tr]
+  
+  l=ggplot(data = coefs_DiD, aes(x=factor(month), y=coefficient_DiD, group=1))+
+    geom_errorbar(aes(ymin=coefficient_DiD - 2.866 * standard_error_DiD , ymax=coefficient_DiD + 2.866 * standard_error_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")+
+    ggtitle(paste("Before", year_pre, "and after", year_post, sep = " "))
+  return(l)
+}
+
+FN_coefficients_DiD_monthly(2008, 2012)
+FN_coefficients_DiD_monthly(2007, 2012)
+FN_coefficients_DiD_monthly(2008, 2013)
+FN_coefficients_DiD_monthly(2007, 2013)
+
+
+
+
+
+
+
+
+
+
+FN_coefficients_DiD_annual     <- function(year_pre) {
+  dt=copy(data_reg_copy_daily)
+  dt=dt[dry_dummy==1]
+  coefs_DiD=data.table()
+  for (i in year_pre:2015) {
+    dt_1=rbind(dt[year< year_pre], dt[year== i])
+    dt_1[, year_treat:=ifelse(year==i, 1, 0)]
+    dt_1=dt_1[, treatment:=ifelse(River=="Trinidad" | River=="Ciri grande", 1, 0)]
+    
+    DiD_annual = lm(tot_discharge ~ treatment + year_treat + treatment:year_treat + total_rain_day + lag.rain_day + day_of_season
+                    # + factor(year) + lag.discharge
+                    , data = dt_1)
+    beta_DiD = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),1]
+    std_DiD  = summary(DiD_annual)$coefficients[nrow(summary(DiD_annual)$coefficients),2]
+    dt_2=data.table(year=i, beta_DiD, std_DiD)
+    coefs_DiD=rbind(coefs, dt_2)
+  }
+  l=ggplot(data = coefs_DiD, aes(x=factor(year), y=beta_DiD, group=1))+
+    geom_errorbar(aes(ymin=beta_DiD - 1.96 * std_DiD , ymax=beta_DiD + 1.96 * std_DiD), width=.1) +
+    geom_line() +
+    geom_point() +
+    # geom_errorbar(data = dt_ESE, aes(y=mean_extra_discharge, ymin=mean_extra_discharge - 1.96 * sd_extra_discharge , ymax=mean_extra_discharge + 1.96 * sd_extra_discharge),
+    #               width=.2, col="red") +
+    xlab("month")+
+    ylab("Diff in Diff Coefficient")
+  return(l)
+}
+
+FN_coefficients_DiD_annual(2008)
 
 
 
